@@ -1,0 +1,128 @@
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>الدحيح | الإصدار البلاتيني النهائي</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script>
+      window.MathJax = {
+        tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+        svg: { fontCache: 'global' }
+      };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --primary: #6366f1;
+        --secondary: #22d3ee;
+        --accent: #fcd34d;
+        --bg-deep: #020617;
+      }
+
+      * {
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: 'Cairo', sans-serif;
+        background-color: var(--bg-deep);
+        color: #f8fafc;
+        margin: 0;
+        height: 100vh;
+        height: 100dvh; /* Dynamic Viewport Height */
+        overflow: hidden;
+        user-select: none;
+      }
+
+      .quantum-arena {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        background: radial-gradient(circle at top right, #1e1b4b 0%, #020617 100%);
+      }
+
+      .star-field {
+        position: absolute;
+        inset: 0;
+        background-image: radial-gradient(1px 1px at 20px 30px, #fff, rgba(0,0,0,0));
+        background-repeat: repeat;
+        background-size: 150px 150px;
+        opacity: 0.05;
+      }
+
+      .glass-platinum {
+        background: rgba(15, 23, 42, 0.8);
+        backdrop-filter: blur(20px) saturate(180%);
+        -webkit-backdrop-filter: blur(20px) saturate(180%);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .dahih-gold-text {
+        background: linear-gradient(135deg, #fff 0%, #fcd34d 50%, #d97706 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-weight: 900;
+      }
+
+      /* تحسين المعادلات للشاشات الصغيرة */
+      .mjx-chtml {
+        max-width: 100% !important;
+        overflow-x: auto !important;
+        display: inline-block !important;
+        padding: 5px 0;
+      }
+
+      ::-webkit-scrollbar { width: 3px; }
+      ::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.3); border-radius: 10px; }
+
+      .safe-pb { padding-bottom: env(safe-area-inset-bottom); }
+      .safe-pt { padding-top: env(safe-area-inset-top); }
+
+      @media (max-width: 400px) {
+        .dahih-gold-text { font-size: 1.5rem !important; }
+        .chat-container { padding: 1rem !important; }
+        .bubble-text { font-size: 0.9rem !important; }
+      }
+
+      .btn-google-legendary {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        background: #0f172a;
+        padding: 0.75rem 1rem;
+        border-radius: 1rem;
+        box-shadow: 0 10px 20px -5px rgba(0,0,0,0.5);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        cursor: pointer;
+        transition: all 0.3s ease;
+        width: 100%;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.35.0",
+    "framer-motion": "https://esm.sh/framer-motion@^12.25.0",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "firebase/": "https://esm.sh/firebase@^12.7.0/"
+  }
+}
+</script>
+</head>
+  <body>
+    <div class="quantum-arena">
+      <div class="star-field"></div>
+    </div>
+    <div id="root"></div>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "name": "Dahih Quantum",
+  "description": "الإصدار الفائق لطلاب الثانوية العامة - استجابة لحظية، توليد فيديو، وتفكير عميق.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}

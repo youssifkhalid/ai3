@@ -1,20 +1,28 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Message, UserProfile, Grade, Branch } from './types';
+import { Message, UserProfile } from './types';
 import { sendMessageQuantum, startLiveCall } from './services/geminiService';
-import { auth, db, syncSessionsToFirebase, fetchSessionsFromFirebase, signInWithGoogle } from './services/firebaseService';
-import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, setPersistence, browserLocalPersistence } from "firebase/auth";
-import { doc, setDoc, getDoc } from "firebase/firestore";
-import ChatBubble from './components/ChatBubble';
 import { 
-  Send, X, Menu, Brain, PhoneOff, GraduationCap, 
-  Lightbulb, Loader2, LogOut, User, Mail, Lock, 
-  Star, Phone, Paperclip, CloudCheck,
-  CheckCircle2, BookOpen, Download,
-  Trash2, Eye, EyeOff, Save, Settings, 
-  PlusCircle, LayoutDashboard, Command, Activity, Zap, 
-  Cpu, MicOff, Waves, ShieldCheck, FileText, FileImage, FileAudio, FileVideo, File
+  auth, 
+  db, 
+  syncSessionsToFirebase, 
+  fetchSessionsFromFirebase, 
+  signUpUser, 
+  logInUser,
+  signInWithGoogle
+} from './services/firebaseService';
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import ChatBubble from './components/ChatBubble';
+import UserProfileView from './components/UserProfileView';
+import { 
+  Send, X, Menu, Brain, GraduationCap, 
+  Lightbulb, Loader2, LogOut, PlusCircle, 
+  FileText, History, PhoneOutgoing, PhoneOff, 
+  Trash, UserCircle, Mic, Sparkles, Paperclip, 
+  Waves, MicOff, Volume2, Headphones, Globe,
+  ShieldAlert, ChevronRight, Zap
 } from 'lucide-react';
 
 type ViewState = 'auth' | 'chat' | 'profile' | 'loading';
@@ -26,64 +34,59 @@ const App: React.FC = () => {
   const [view, setView] = useState<ViewState>('loading');
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [fullName, setFullName] = useState('');
-  
-  const [editName, setEditName] = useState('');
-  const [editGrade, setEditGrade] = useState<Grade>('3sec');
-  const [editBranch, setEditBranch] = useState<Branch>('general');
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
-
-  const [authError, setAuthError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [useThinking, setUseThinking] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [sessions, setSessions] = useState<any[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  
-  const [attachedFiles, setAttachedFiles] = useState<{name: string, data: string, mime: string, type: string}[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Auth Inputs
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [nickname, setNickname] = useState('يا دكتور');
+  const [authError, setAuthError] = useState('');
+
+  // Attachments
+  const [attachedFile, setAttachedFile] = useState<{data: string, name: string, type: string} | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  
+  // Call State
   const [isCallActive, setIsCallActive] = useState(false);
   const [callSession, setCallSession] = useState<any>(null);
-  const [transcriptions, setTranscriptions] = useState<{text: string, isUser: boolean}[]>([]);
+  const [callTranscription, setCallTranscription] = useState<{text: string, isUser: boolean}[]>([]);
+  const [isMuted, setIsMuted] = useState(false);
 
-  const isInitialLoad = useRef(true);
-  const currentSession = sessions.find(s => s.id === currentSessionId);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const currentSession = sessions.find(s => s.id === currentSessionId);
 
   useEffect(() => {
-    setPersistence(auth, browserLocalPersistence);
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       if (u) {
         setUser(u);
-        try {
-          const docSnap = await getDoc(doc(db, "users", u.uid));
-          const p = docSnap.exists() ? docSnap.data() as UserProfile : { uid: u.uid, name: u.displayName || 'طالب دحيح', email: u.email || '', points: 100, grade: '3sec', branch: 'general' } as UserProfile;
-          setProfile(p);
-          setEditName(p.name);
-          setEditGrade(p.grade || '3sec');
-          setEditBranch(p.branch || 'general');
-          
-          const cloudSessions = await fetchSessionsFromFirebase(u.uid);
-          if (cloudSessions.length > 0) {
-            setSessions(cloudSessions);
-            setCurrentSessionId(cloudSessions[0].id);
-          } else {
-            const firstId = Date.now().toString();
-            setSessions([{ id: firstId, title: 'مذاكرة جديدة', messages: [], lastUpdated: Date.now() }]);
-            setCurrentSessionId(firstId);
-          }
-          isInitialLoad.current = false;
-          setView('chat');
-        } catch (e) { setView('chat'); }
+        const docSnap = await getDoc(doc(db, "users", u.uid));
+        if (docSnap.exists()) setProfile(docSnap.data() as UserProfile);
+        
+        // Fetch sessions STRICTLY for THIS user
+        const cloudSessions = await fetchSessionsFromFirebase(u.uid);
+        if (cloudSessions?.length > 0) {
+          const sorted = cloudSessions.sort((a:any, b:any)=>b.lastUpdated - a.lastUpdated);
+          setSessions(sorted);
+          setCurrentSessionId(sorted[0].id);
+        } else {
+          const id = Date.now().toString();
+          const firstS = { id, title: 'أول لقاء مع الدحيح', messages: [], lastUpdated: Date.now() };
+          setSessions([firstS]);
+          setCurrentSessionId(id);
+        }
+        setView('chat');
       } else {
+        // Reset local state on logout
+        setUser(null);
+        setSessions([]);
+        setCurrentSessionId(null);
         setView('auth');
       }
     });
@@ -91,262 +94,374 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!user || isInitialLoad.current || sessions.length === 0) return;
-    const syncTimer = setTimeout(async () => {
-      setIsSyncing(true);
-      try { await syncSessionsToFirebase(user.uid, sessions); } finally { setIsSyncing(false); }
-    }, 10000);
-    return () => clearTimeout(syncTimer);
+    if (user && sessions.length > 0) {
+      syncSessionsToFirebase(user.uid, sessions);
+    }
   }, [sessions, user]);
 
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [currentSession?.messages, isGenerating, attachedFiles]);
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [currentSession?.messages, isGenerating]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
-    setLoading(true);
+    setView('loading');
     try {
       if (authMode === 'signup') {
-        const res = await createUserWithEmailAndPassword(auth, email, password);
-        const p: UserProfile = { uid: res.user.uid, name: fullName, email, points: 100, grade: editGrade, branch: editBranch };
-        await setDoc(doc(db, "users", res.user.uid), p);
-        setProfile(p);
-      } else { await signInWithEmailAndPassword(auth, email, password); }
-    } catch (err: any) { setAuthError('تأكد من البيانات والاتصال بالإنترنت.'); } finally { setLoading(false); }
+        await signUpUser({ name, nickname, emailOrPhone: identifier, academicYear: '3ث', track: 'علمي علوم', joinedAt: Date.now() }, password);
+      } else {
+        await logInUser(identifier, password);
+      }
+    } catch (err: any) {
+      setAuthError(err.message);
+      setView('auth');
+    }
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-    Array.from(files).forEach((file: any) => {
-      const reader = new FileReader();
-      reader.onload = (readerEvent) => {
-        const base64 = readerEvent.target?.result as string;
-        let fileType = 'file';
-        if (file.type.startsWith('image/')) fileType = 'image';
-        else if (file.type.startsWith('audio/')) fileType = 'audio';
-        else if (file.type.startsWith('video/')) fileType = 'video';
-        else if (file.type === 'application/pdf') fileType = 'pdf';
-        setAttachedFiles(prev => [...prev, { name: file.name, data: base64, mime: file.type, type: fileType }]);
-      };
-      reader.readAsDataURL(file);
-    });
-    if (fileInputRef.current) fileInputRef.current.value = '';
+  const createNewSession = () => {
+    const id = Date.now().toString();
+    const newS = { id, title: 'New chat ', messages: [], lastUpdated: Date.now() };
+    setSessions(prev => [newS, ...prev]);
+    setCurrentSessionId(id);
+    setIsSidebarOpen(false);
+  };
+
+  const clearAllHistory = async () => {
+    if (window.confirm("هتمسح كل الشات  يا دحيح؟ الخطوة دي مش هينفع نرجع فيها!")) {
+      const emptySessions: any[] = [];
+      setSessions(emptySessions);
+      if (user) await syncSessionsToFirebase(user.uid, emptySessions);
+      createNewSession();
+    }
+  };
+
+  const deleteOneSession = async (id: string) => {
+    const updated = sessions.filter(s => s.id !== id);
+    setSessions(updated);
+    if (user) await syncSessionsToFirebase(user.uid, updated);
+    if (currentSessionId === id) {
+      if (updated.length > 0) setCurrentSessionId(updated[0].id);
+      else createNewSession();
+    }
   };
 
   const handleSend = async () => {
-    if (!currentSessionId || (!inputValue.trim() && attachedFiles.length === 0) || isGenerating) return;
+    if (!currentSessionId || (!inputValue.trim() && !attachedFile) || isGenerating) return;
     const prompt = inputValue.trim();
-    const filesToSend = [...attachedFiles];
     setIsGenerating(true);
     setInputValue('');
-    setAttachedFiles([]);
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', text: prompt || `[ملفات: ${filesToSend.length}]`, timestamp: Date.now() };
-    setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, messages: [...s.messages, userMsg], lastUpdated: Date.now() } : s));
+    
+    const userMsg: Message = { id: Date.now().toString(), role: 'user', text: prompt, timestamp: Date.now(), image: attachedFile?.type.startsWith('image') ? attachedFile.data : undefined };
+    
+    setSessions(prev => prev.map(s => 
+      s.id === currentSessionId ? { 
+        ...s, 
+        title: s.messages.length < 1 ? prompt.substring(0, 40) : s.title, 
+        messages: [...s.messages, userMsg], 
+        lastUpdated: Date.now() 
+      } : s
+    ).sort((a,b)=>b.lastUpdated - a.lastUpdated));
+
+    const fileToUpload = attachedFile; 
+    setAttachedFile(null);
     const modelMsgId = (Date.now() + 1).toString();
     setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, messages: [...s.messages, { id: modelMsgId, role: 'model', text: '', timestamp: Date.now() }] } : s));
+    
     try {
-      await sendMessageQuantum(prompt || "قم بتحليل المرفقات الموضحة.", { useThinking, files: filesToSend }, (text) => {
+      const files = fileToUpload ? [{ data: fileToUpload.data, mime: fileToUpload.type }] : undefined;
+      await sendMessageQuantum(prompt, { useThinking, userName: profile?.nickname + " " + profile?.name, files }, (text) => {
         setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, messages: s.messages.map(m => m.id === modelMsgId ? { ...m, text } : m) } : s));
       });
-    } finally { setIsGenerating(false); }
+    } catch(e) {} finally { setIsGenerating(false); }
   };
 
   const toggleCall = async () => {
-    if(isCallActive) { await callSession?.stop(); setIsCallActive(false); return; }
-    setIsCallActive(true);
-    try {
-      const s = await startLiveCall((text, isUser) => setTranscriptions(prev => [...prev, {text, isUser}].slice(-3)));
-      setCallSession(s);
-    } catch(e) { setIsCallActive(false); alert("تأكد من إعطاء صلاحية الميكروفون."); }
+    if (isCallActive) {
+      if (callSession) await callSession.stop();
+      setCallSession(null); setIsCallActive(false); setCallTranscription([]);
+    } else {
+      setIsCallActive(true);
+      try {
+        const session = await startLiveCall(profile?.nickname + " " + profile?.name, (text, isUser) => {
+          setCallTranscription(prev => [...prev, {text, isUser}].slice(-10));
+        });
+        setCallSession(session);
+      } catch (err) { setIsCallActive(false); }
+    }
   };
 
-  const handleSaveProfile = async () => {
-    if (!user || !profile) return;
-    setIsSavingProfile(true);
+  const handleDeepExplain = async (text: string) => {
+    if (isGenerating) return;
+    setIsGenerating(true);
+    const deepPrompt = `بص يا دحيح، فصص لي الكلام ده واشرحه بملزمة منظمة جداً كأننا في سنتر وبكل الرموز العلمية: ${text}`;
+    const modelMsgId = Date.now().toString();
+    setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, messages: [...s.messages, { id: modelMsgId, role: 'model', text: 'جاري تحضير ملزمة الشرح التفصيلية بجميع الرموز والمعادلات...', timestamp: Date.now() }] } : s));
     try {
-      const updated = { ...profile, name: editName, grade: editGrade, branch: editBranch };
-      await setDoc(doc(db, "users", user.uid), updated, { merge: true });
-      setProfile(updated);
-      setView('chat');
-    } finally { setIsSavingProfile(false); }
+      await sendMessageQuantum(deepPrompt, { useThinking: true, userName: profile?.name }, (fullText) => {
+        setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, messages: s.messages.map(m => m.id === modelMsgId ? { ...m, text: fullText } : m) } : s));
+      });
+    } catch(e) {} finally { setIsGenerating(false); }
   };
 
-  if (view === 'loading') return (
-    <div className="h-screen w-full flex flex-col items-center justify-center bg-[#020617] p-6 text-center">
-      <motion.div animate={{ scale: [1, 1.1, 1], rotate: [0, 10, -10, 0] }} transition={{ repeat: Infinity, duration: 4 }} className="w-20 h-20 bg-indigo-600 rounded-3xl flex items-center justify-center text-white shadow-2xl mb-8">
-        <Brain size={40} />
-      </motion.div>
-      <h1 className="dahih-gold-text text-4xl mb-2">الدحيح</h1>
-      <Loader2 className="animate-spin text-indigo-500 opacity-50" />
-    </div>
-  );
+  const exportToPDF = (text: string) => {
+    const container = document.getElementById('pdf-export-content');
+    if (!container) return;
+    container.innerHTML = `
+      <div style="direction: rtl; padding: 50px; font-family: 'Cairo', sans-serif; background: #fff;">
+        <h1 style="color: #4f46e5; border-bottom: 3px solid #4f46e5; padding-bottom: 15px; font-size: 32px;">ملزمة الدحيح 2026</h1>
+        <div style="margin-top: 30px; line-height: 2; font-size: 18px; color: #1e293b;">
+          ${text.replace(/\n/g, '<br>')}
+        </div>
+      </div>
+    `;
+    const opt = { 
+      margin: 10, 
+      filename: `Malzama_Dahih_${Date.now()}.pdf`, 
+      html2canvas: { scale: 3 }, 
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } 
+    };
+    (window as any).html2pdf().from(container).set(opt).save();
+  };
+
+  if (view === 'loading') return <div className="h-screen flex flex-col items-center justify-center bg-white gap-5"><Loader2 className="animate-spin text-indigo-600" size={56} /><p className="font-black text-slate-800 text-xl">بيحمل بياناتك يا بطل...</p></div>;
 
   if (view === 'auth') return (
-    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-[#020617] overflow-y-auto">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md glass-platinum p-8 sm:p-12 rounded-[2.5rem] text-center border border-white/5 my-8">
-        <div className="w-20 h-20 bg-gradient-to-br from-indigo-500 to-amber-500 rounded-3xl flex items-center justify-center mx-auto mb-8 text-white shadow-2xl"><GraduationCap size={40} /></div>
-        <h1 className="dahih-gold-text text-4xl mb-8">الدحيح</h1>
-        <div className="flex bg-slate-900/50 p-1.5 rounded-2xl mb-8 border border-white/5">
-           <button onClick={()=>setAuthMode('login')} className={`flex-1 py-3 rounded-xl font-bold text-xs transition-all ${authMode==='login'?'bg-indigo-600 text-white shadow-lg':'text-slate-500'}`}>دخول</button>
-           <button onClick={()=>setAuthMode('signup')} className={`flex-1 py-3 rounded-xl font-bold text-xs transition-all ${authMode==='signup'?'bg-indigo-600 text-white shadow-lg':'text-slate-500'}`}>تسجيل</button>
-        </div>
-        <button className="btn-google-legendary mb-8 w-full" onClick={signInWithGoogle} disabled={loading}>
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="white" viewBox="0 0 24 24"><path d="M12.48 10.92v3.28h7.84c-.24 1.84-.908 3.152-1.928 4.172-1.272 1.272-3.264 2.688-6.912 2.688-6.144 0-10.8-4.968-10.8-11.112s4.656-11.112 10.8-11.112c3.48 0 6.024 1.368 7.824 3.12l2.304-2.304c-2.328-2.232-5.4-3.528-10.128-3.528-9.048 0-16.512 7.344-16.512 16.5s7.464 16.5 16.512 16.5c4.896 0 8.592-1.608 11.544-4.68 3.048-3.048 4.008-7.296 4.008-10.656 0-.912-.072-1.872-.216-2.736h-12.72v-.048z"/></svg>
-          <span className="font-bold text-sm">متابعة عبر جوجل</span>
-        </button>
-        <form onSubmit={handleAuth} className="space-y-4">
-           {authMode==='signup' && <input type="text" placeholder="الاسم" value={fullName} onChange={e=>setFullName(e.target.value)} required className="w-full bg-slate-950/60 p-4 rounded-xl text-white border border-white/10 outline-none" />}
-           <input type="email" placeholder="البريد" value={email} onChange={e=>setEmail(e.target.value)} required className="w-full bg-slate-950/60 p-4 rounded-xl text-white border border-white/10 outline-none" />
-           <div className="relative">
-             <input type={showPassword?'text':'password'} placeholder="كلمة السر" value={password} onChange={e=>setPassword(e.target.value)} required className="w-full bg-slate-950/60 p-4 pr-4 pl-12 rounded-xl text-white border border-white/10 outline-none" />
-             <button type="button" onClick={()=>setShowPassword(!showPassword)} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button>
+    <div className="h-screen w-full flex bg-slate-50 overflow-hidden relative">
+      <div className="hidden lg:flex flex-1 bg-indigo-600 items-center justify-center p-12 text-white relative">
+        <div className="absolute top-0 left-0 w-full h-full opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white via-transparent to-transparent"></div>
+        <div className="relative z-10 max-w-lg space-y-8">
+           <div className="size-24 bg-white rounded-[2rem] flex items-center justify-center text-indigo-600 shadow-2xl animate-bounce-slow">
+              <Brain size={56} />
            </div>
-           <button type="submit" disabled={loading} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-lg transition-all">{loading ? <Loader2 className="animate-spin mx-auto" /> : 'دخول المنصة'}</button>
-        </form>
-        {authError && <p className="mt-4 text-rose-400 text-xs">{authError}</p>}
-      </motion.div>
+           <h1 className="text-7xl font-black tracking-tighter">الدحيح 2026</h1>
+           <p className="text-3xl opacity-90 font-bold leading-relaxed">أول منصة ذكاء اصطناعي تعليمي بلهجة مصرية 100%. بنلم المنهج في جيبك!</p>
+        </div>
+      </div>
+      
+      <div className="flex-1 flex items-center justify-center p-6 bg-white/60 backdrop-blur-3xl">
+        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-md space-y-8 bg-white p-12 rounded-[3.5rem] shadow-2xl border border-slate-100">
+           <div className="text-center">
+              <h2 className="text-4xl font-black text-slate-900 mb-2">{authMode === 'login' ? 'وحشتنا يا دحيح!' : 'انضم للرحلة!'}</h2>
+              <p className="text-slate-500 font-bold text-lg">سجل دخولك وكمل مذاكرة 👋</p>
+           </div>
+
+           <form onSubmit={handleAuth} className="space-y-4">
+              {authMode === 'signup' && (
+                <div className="space-y-4">
+                  <input required placeholder="اسمك بالكامل" value={name} onChange={e=>setName(e.target.value)} className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl px-6 py-4 font-black outline-none transition-all" />
+                  <input placeholder="اللقب (   الي هينديك بيه الدحيح)" value={nickname} onChange={e=>setNickname(e.target.value)} className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl px-6 py-4 font-black outline-none transition-all" />
+                </div>
+              )}
+              <input required placeholder="الإيميل أو الموبايل" value={identifier} onChange={e=>setIdentifier(e.target.value)} className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl px-6 py-4 font-black outline-none transition-all" />
+              <input required type="password" placeholder="كلمة السر" value={password} onChange={e=>setPassword(e.target.value)} className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl px-6 py-4 font-black outline-none transition-all" />
+              
+              {authError && <p className="text-rose-500 text-sm font-black text-center">{authError}</p>}
+              
+              <button type="submit" className="w-full py-5 bg-indigo-600 text-white rounded-[2rem] font-black text-xl shadow-2xl hover:bg-indigo-700 transition-all active:scale-95 shadow-indigo-200">
+                {authMode === 'login' ? 'دخول' : 'تسجيل جديد'}
+              </button>
+           </form>
+
+           <div className="relative py-2">
+              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100"></div></div>
+              <div className="relative flex justify-center text-xs font-black uppercase"><span className="bg-white px-4 text-slate-400 tracking-widest">أو</span></div>
+           </div>
+
+           <button onClick={signInWithGoogle} className="w-full py-4 bg-white border-2 border-slate-100 rounded-3xl font-black flex items-center justify-center gap-3 hover:bg-slate-50 transition-all text-slate-800 shadow-sm"><Globe size={20} /> جوجل</button>
+           
+           <p className="text-center font-bold text-slate-500 text-base">
+             {authMode === 'login' ? 'معندكش حساب؟' : 'عندك حساب فعلاً؟'} 
+             <button onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')} className="text-indigo-600 mr-2 hover:underline">اضغط هنا</button>
+           </p>
+        </motion.div>
+      </div>
     </div>
   );
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-transparent text-white relative">
+    <div className="flex h-screen w-full overflow-hidden bg-white text-slate-900 relative">
       <AnimatePresence>
-        {isSidebarOpen && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={()=>setIsSidebarOpen(false)} className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[90] lg:hidden" />}
+        {isCallActive && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[300] bg-indigo-950 flex flex-col items-center justify-between p-12 text-white overflow-hidden">
+             <div className="absolute inset-0 opacity-20 pointer-events-none">
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[250%] h-[250%] bg-indigo-500 rounded-full blur-[250px] animate-pulse"></div>
+             </div>
+             
+             <header className="w-full flex justify-between items-center relative z-10">
+                <div className="bg-white/10 px-8 py-3 rounded-full border border-white/10 animate-pulse font-black text-sm">مكالمة ذكية جارية...</div>
+                <div className="dahih-gradient text-3xl font-black">الدحيح 2026</div>
+             </header>
+
+             <div className="flex flex-col items-center gap-12 text-center relative z-10">
+                <div className="size-64 bg-white/5 rounded-full flex items-center justify-center shadow-[0_0_150px_rgba(79,70,229,0.4)] border border-white/10 relative">
+                   <Brain size={120} className="text-white" />
+                   <motion.div animate={{ scale: [1, 1.6, 1], opacity: [0.6, 0, 0.6] }} transition={{ duration: 2.5, repeat: Infinity }} className="absolute inset-0 rounded-full border-8 border-white/20" />
+                </div>
+                <div className="space-y-6">
+                   <h3 className="text-5xl font-black tracking-tight">الدحيح بيشرح لك...</h3>
+                   <p className="text-indigo-200 text-xl font-bold opacity-80">اتكلم ببراحتك وأنا معاك</p>
+                </div>
+             </div>
+
+             <div className="w-full max-w-3xl h-56 overflow-y-auto no-scrollbar space-y-5 px-8 relative z-10">
+                {callTranscription.map((t, i) => (
+                  <motion.div key={i} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`p-5 rounded-[2.5rem] text-base font-black shadow-2xl border ${t.isUser ? 'bg-white/10 text-right self-end' : 'bg-indigo-600/50 text-right self-start border-indigo-400/50'}`}>
+                    {t.text}
+                  </motion.div>
+                ))}
+             </div>
+
+             <div className="flex gap-10 relative z-10 pb-8">
+                <button onClick={() => setIsMuted(!isMuted)} className={`size-24 rounded-full flex items-center justify-center shadow-2xl transition-all hover:scale-110 active:scale-90 ${isMuted ? 'bg-amber-500' : 'bg-white/10 hover:bg-white/20'}`}>
+                  {isMuted ? <MicOff size={40} /> : <Mic size={40} />}
+                </button>
+                <button onClick={toggleCall} className="size-28 bg-rose-600 rounded-full flex items-center justify-center shadow-[0_0_80px_rgba(225,29,72,0.5)] hover:scale-110 active:scale-90 transition-all"><PhoneOff size={48}/></button>
+                <button className="size-24 bg-white/10 rounded-full flex items-center justify-center shadow-2xl hover:bg-white/20 hover:scale-110 active:scale-90">
+                  <Volume2 size={40} />
+                </button>
+             </div>
+          </motion.div>
+        )}
+
+        {view === 'profile' && profile && (
+          <UserProfileView profile={profile} onClose={() => setView('chat')} onUpdate={(p) => setProfile(p)} />
+        )}
       </AnimatePresence>
-      <aside className={`fixed lg:relative inset-y-0 right-0 z-[100] w-[85vw] sm:w-80 glass-platinum border-l border-white/10 transition-transform duration-500 ${isSidebarOpen?'translate-x-0':'-translate-x-full lg:translate-x-0'} flex flex-col p-6 safe-pt safe-pb`}>
-        <div className="flex items-center gap-4 mb-10">
-          <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-xl"><Brain size={28}/></div>
-          <div className="dahih-gold-text text-2xl">الدحيح</div>
+
+      <aside className={`fixed lg:relative inset-y-0 right-0 z-[200] w-80 lg:w-96 glass-card border-l border-slate-200 transition-transform duration-500 ease-out ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'} flex flex-col p-8`}>
+        <div className="flex items-center justify-between mb-12">
+          <div className="flex items-center gap-4">
+            <div className="size-14 bg-indigo-600 rounded-[1.5rem] flex items-center justify-center text-white shadow-2xl shadow-indigo-100"><Brain size={32} /></div>
+            <div>
+               <div className="dahih-gradient text-3xl font-black tracking-tighter">الدحيح</div>
+               <div className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">حسابك </div>
+            </div>
+          </div>
+          <button className="lg:hidden p-3 bg-slate-100 rounded-2xl" onClick={() => setIsSidebarOpen(false)}><X size={28} /></button>
         </div>
-        <button onClick={()=>{const id=Date.now().toString(); setSessions([{id, title:'مذاكرة جديدة', messages:[], lastUpdated:Date.now()}, ...sessions]); setCurrentSessionId(id); setIsSidebarOpen(false);}} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold mb-8 shadow-lg flex items-center justify-center gap-2"><PlusCircle size={20}/> مذاكرة جديدة</button>
-        <div className="flex-1 overflow-y-auto no-scrollbar space-y-3">
+        
+        <button onClick={createNewSession} className="w-full py-5 bg-indigo-600 text-white rounded-[2rem] font-black mb-12 shadow-2xl shadow-indigo-100 flex items-center justify-center gap-3 hover:scale-[1.03] active:scale-95 transition-all text-lg"><PlusCircle size={28} /> حصة جديدة</button>
+        
+        <div className="flex-1 overflow-y-auto no-scrollbar space-y-4">
+          <div className="flex justify-between items-center px-3 mb-4">
+            <span className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><History size={18}/>  السجل</span>
+            <button onClick={clearAllHistory} className="text-xs font-black text-rose-500 hover:underline">تصفير السجل</button>
+          </div>
           {sessions.map(s => (
-            <div key={s.id} onClick={()=>{setCurrentSessionId(s.id); setIsSidebarOpen(false);}} className={`p-4 rounded-xl cursor-pointer border transition-all flex items-center justify-between ${currentSessionId===s.id?'bg-indigo-600/30 border-indigo-500/50 shadow-md':'bg-white/5 border-transparent opacity-60'}`}>
-              <p className="text-sm font-bold truncate max-w-[150px]">{s.title || 'مذاكرة فارغة'}</p>
-              <button onClick={(e)=>{e.stopPropagation(); if(confirm('حذف؟')) setSessions(prev=>prev.filter(x=>x.id!==s.id));}} className="p-1 text-rose-500"><Trash2 size={16}/></button>
+            <div key={s.id} className={`group relative p-5 rounded-[2rem] border transition-all flex items-center justify-between cursor-pointer ${currentSessionId===s.id?'bg-indigo-50 border-indigo-200 shadow-xl':'bg-white border-slate-100 hover:border-indigo-100 shadow-sm'}`} onClick={()=>{setCurrentSessionId(s.id); setIsSidebarOpen(false);}}>
+              <div className="flex-1 truncate">
+                <p className={`text-base font-black truncate ${currentSessionId===s.id ? 'text-indigo-800' : 'text-slate-700'}`}>{s.title}</p>
+                <p className="text-[10px] text-slate-400 font-black mt-1 uppercase">{new Date(s.lastUpdated).toLocaleDateString()}</p>
+              </div>
+              <button onClick={(e)=>{e.stopPropagation(); deleteOneSession(s.id);}} className="p-2 text-rose-200 hover:text-rose-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash size={20}/></button>
             </div>
           ))}
         </div>
-        <div className="mt-6 pt-6 border-t border-white/5 space-y-3">
-            <button onClick={()=>setView('profile')} className="w-full py-3 glass-platinum rounded-xl font-bold flex items-center justify-center gap-2 text-xs border border-white/5"><Settings size={18}/> الإعدادات</button>
-            <button onClick={()=>signOut(auth)} className="w-full py-3 text-rose-400 font-bold flex items-center justify-center gap-2 text-xs"><LogOut size={18}/> خروج</button>
+
+        <div className="mt-10 pt-8 border-t border-slate-100 space-y-5">
+            <button onClick={() => setView('profile')} className="w-full py-5 bg-white border border-slate-100 rounded-[2rem] font-black flex items-center gap-5 px-8 hover:bg-slate-50 transition-all text-slate-800 shadow-sm"><UserCircle className="text-indigo-600" size={28} /> ملفك الشخصي</button>
+            <button onClick={()=>signOut(auth)} className="w-full py-5 text-rose-500 font-black flex items-center gap-5 px-8 hover:bg-rose-50 rounded-[2rem] transition-all text-lg"><LogOut size={28} /> خروج من الدفعة</button>
         </div>
       </aside>
-      <main className="flex-1 flex flex-col relative h-full">
-        <header className="h-16 glass-platinum flex items-center justify-between px-4 sm:px-8 z-50 border-b border-white/5 safe-pt">
-           <div className="flex items-center gap-4">
-               <button className="lg:hidden p-2 bg-white/5 rounded-lg border border-white/10" onClick={()=>setIsSidebarOpen(true)}><Menu size={24}/></button>
-               <div className="dahih-gold-text text-xl sm:text-2xl">الدحيح</div>
+
+      <main className="flex-1 flex flex-col relative h-full bg-slate-50/20 overflow-hidden">
+        <header className="h-24 glass-card flex items-center justify-between px-8 md:px-14 z-50 border-b border-slate-100">
+           <div className="flex items-center gap-8">
+               <button className="lg:hidden p-4 bg-white rounded-[1.5rem] shadow-xl border" onClick={()=>setIsSidebarOpen(true)}><Menu size={32} /></button>
+               <div className="hidden md:block">
+                  <h2 className="text-3xl font-black dahih-gradient tracking-tighter">الدحيح 2026</h2>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.5em]">أقوى مساعد تعليمي</p>
+               </div>
            </div>
-           <div className="flex items-center gap-2">
-              <button onClick={toggleCall} className={`px-4 py-2 rounded-xl font-bold flex items-center gap-2 text-[10px] sm:text-xs shadow-xl ${isCallActive?'bg-rose-500 animate-pulse':'bg-indigo-600'}`}>{isCallActive ? <PhoneOff size={16}/> : <Phone size={16}/>} <span>{isCallActive ? 'إنهاء' : 'مكالمة'}</span></button>
+           <div className="flex items-center gap-6">
+              <button onClick={toggleCall} className="h-14 px-8 rounded-[2rem] font-black flex items-center gap-4 shadow-2xl shadow-indigo-100 bg-indigo-600 text-white hover:bg-indigo-700 transition-all active:scale-95 text-base"><PhoneOutgoing size={24} /> <span className="hidden sm:inline">كلم الدحيح</span></button>
+              <div className="hidden lg:flex flex-col items-end">
+                 <span className="text-lg font-black text-slate-900 tracking-tight leading-none">{profile?.nickname} {profile?.name.split(' ')[0]}</span>
+                 <span className="text-[10px] font-black text-emerald-500 uppercase mt-1 bg-emerald-50 px-3 py-1 rounded-full">طالب دحيح نشط</span>
+              </div>
            </div>
         </header>
-        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-6 no-scrollbar chat-container">
-           <div className="max-w-4xl mx-auto w-full pb-40">
-              {!currentSessionId && !isCallActive && <div className="h-[50vh] flex flex-col items-center justify-center text-center opacity-10"><Cpu size={120} className="mb-6 animate-pulse" /><h2 className="text-3xl font-black">الدحيح في انتظارك</h2></div>}
-              <AnimatePresence mode="popLayout">{currentSession?.messages.map(m => <ChatBubble key={m.id} message={m} />)}</AnimatePresence>
-              {isGenerating && <div className="flex gap-4 p-5 glass-platinum rounded-2xl w-fit border-r-4 border-indigo-500 animate-pulse"><Loader2 className="animate-spin text-indigo-500" size={20}/><span className="text-sm font-bold">يكتب الآن...</span></div>}
-           </div>
-        </div>
-        {currentSessionId && !isCallActive && (
-          <div className="absolute bottom-0 left-0 w-full p-4 sm:p-8 bg-gradient-to-t from-[#020617] via-[#020617]/90 to-transparent z-10 safe-pb">
-            <div className="max-w-4xl mx-auto space-y-4">
-               <AnimatePresence>
-                {attachedFiles.length > 0 && (
-                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="flex flex-wrap gap-2 p-3 glass-platinum rounded-2xl border border-white/5 overflow-x-auto max-h-24 no-scrollbar">
-                    {attachedFiles.map((f, i) => (
-                      <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600/20 rounded-lg text-[10px] font-bold border border-indigo-500/30 whitespace-nowrap">
-                        {f.type==='image'?<FileImage size={14}/>:f.type==='pdf'?<FileText size={14}/>:<File size={14}/>}
-                        <span className="max-w-[80px] truncate">{f.name}</span>
-                        <button onClick={()=>setAttachedFiles(prev=>prev.filter((_,idx)=>idx!==i))} className="text-rose-400"><X size={12}/></button>
-                      </div>
-                    ))}
-                  </motion.div>
-                )}
-               </AnimatePresence>
-               <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-                 <button onClick={()=>setUseThinking(!useThinking)} className={`px-4 py-2 rounded-xl text-[10px] font-bold border transition-all whitespace-nowrap flex items-center gap-2 ${useThinking?'bg-indigo-600 border-indigo-400 shadow-md':'bg-white/5 border-white/5 opacity-40'}`}><Lightbulb size={14}/> {useThinking ? 'التفكير نشط' : 'تفعيل التفكير'}</button>
-                 {isSyncing && <div className="px-4 py-2 bg-emerald-500/10 rounded-xl text-[10px] font-bold border border-emerald-500/20 text-emerald-400 flex items-center gap-2 whitespace-nowrap"><CloudCheck size={14}/> يتم الحفظ..</div>}
-               </div>
-               <div className="relative glass-platinum p-3 rounded-[2rem] flex items-end gap-3 border border-white/10 shadow-2xl focus-within:border-indigo-500/50">
-                  <input type="file" ref={fileInputRef} className="hidden" multiple onChange={handleFileSelect} accept="image/*, application/pdf, audio/*, video/*" />
-                  <button onClick={()=>fileInputRef.current?.click()} className="w-10 h-10 sm:w-12 sm:h-12 bg-white/5 rounded-full text-slate-400 flex items-center justify-center shrink-0 border border-white/5"><Paperclip size={20}/></button>
-                  <textarea value={inputValue} onChange={e=>setInputValue(e.target.value)} onKeyDown={e=>e.key==='Enter'&&!e.shiftKey&&(e.preventDefault(), handleSend())} placeholder="اسأل الدحيح..." className="flex-1 bg-transparent border-none focus:ring-0 py-3 text-base sm:text-lg font-bold placeholder:text-slate-700 resize-none max-h-32 min-h-[40px] no-scrollbar text-white" rows={1} />
-                  <button onClick={handleSend} disabled={isGenerating || (!inputValue.trim() && attachedFiles.length===0)} className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full text-white shadow-xl flex items-center justify-center shrink-0 transition-all ${inputValue.trim()||attachedFiles.length>0 ? 'bg-indigo-600' : 'bg-slate-800 opacity-30'}`}><Send size={20} className="rotate-180 translate-x-0.5"/></button>
-               </div>
-            </div>
-          </div>
-        )}
-        <AnimatePresence>
-          {isCallActive && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[150] bg-[#020617]/98 backdrop-blur-2xl flex flex-col items-center justify-center p-6 text-center">
-              <div className="relative mb-12">
-                <div className="absolute inset-0 bg-indigo-500 blur-[80px] rounded-full opacity-20 animate-pulse" />
-                <div className="w-40 h-40 sm:w-56 sm:h-56 rounded-[3rem] bg-indigo-600 flex items-center justify-center text-white relative z-10 shadow-2xl border-2 border-white/10"><Brain size={80} className="animate-pulse" /></div>
-              </div>
-              <h2 className="text-2xl sm:text-4xl font-black text-white dahih-gold-text mb-8">الدحيح في مكالمة معك</h2>
-              <div className="max-w-md w-full h-24 overflow-hidden mb-12 bg-white/5 rounded-2xl p-6 flex flex-col justify-center border border-white/5 shadow-inner">
-                {transcriptions.length > 0 ? <p className="text-lg font-bold text-slate-100 italic">"{transcriptions[transcriptions.length-1].text}"</p> : <p className="text-slate-500 animate-pulse font-bold text-sm uppercase tracking-widest">انتظار السؤال...</p>}
-              </div>
-              <div className="flex gap-6">
-                <button className="w-14 h-14 rounded-2xl glass-platinum flex items-center justify-center text-slate-500 border border-white/5"><MicOff size={24}/></button>
-                <button onClick={toggleCall} className="w-20 h-20 rounded-[2rem] bg-rose-500 text-white flex items-center justify-center shadow-xl border-4 border-white/10 transition-transform active:scale-90"><PhoneOff size={32}/></button>
-                <button className="w-14 h-14 rounded-2xl glass-platinum flex items-center justify-center text-indigo-400 border border-white/5"><Waves size={24}/></button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </main>
-      <AnimatePresence>
-        {view === 'profile' && profile && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-xl flex items-center justify-center p-4">
-            <motion.div initial={{ scale: 0.9, y: 30 }} animate={{ scale: 1, y: 0 }} className="w-full max-w-2xl bg-[#0f172a] p-8 rounded-[3rem] border border-white/10 shadow-3xl relative overflow-y-auto max-h-[90vh] no-scrollbar">
-              <div className="flex items-center justify-between mb-10">
-                <div className="flex items-center gap-4"><Settings className="text-indigo-400" size={28}/><h2 className="dahih-gold-text text-2xl">الملف الشخصي</h2></div>
-                <button onClick={()=>setView('chat')} className="p-3 bg-white/5 rounded-xl border border-white/10"><X size={20}/></button>
-              </div>
-              <div className="grid grid-cols-1 gap-6">
-                <div className="flex flex-col items-center gap-4 p-6 glass-platinum rounded-3xl border border-white/5">
-                  <div className="w-20 h-20 bg-indigo-600 rounded-[2rem] flex items-center justify-center text-white text-3xl font-black">{editName.charAt(0)}</div>
-                  <div className="w-full space-y-2 text-right">
-                    <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest px-2">الاسم</label>
-                    <input type="text" value={editName} onChange={e=>setEditName(e.target.value)} className="w-full bg-slate-950/60 p-4 rounded-xl border border-white/10 outline-none font-bold" />
+
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 md:p-12 space-y-10 no-scrollbar scroll-smooth">
+           <div className="max-w-5xl mx-auto w-full pb-72">
+              {currentSession?.messages.length === 0 && (
+                <div className="text-center py-32 px-12 bg-white rounded-[5rem] shadow-2xl border border-slate-100 space-y-8 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-16 opacity-5 rotate-12 scale-150"><GraduationCap size={300}/></div>
+                  <div className="size-24 bg-indigo-600 rounded-[2rem] mx-auto flex items-center justify-center text-white shadow-2xl animate-pulse"><Brain size={48} /></div>
+                  <h2 className="text-5xl font-black text-slate-900 leading-tight">جاهز نكسر الدنيا يا {profile?.nickname}؟ 🚀</h2>
+                  <p className="text-slate-500 text-xl font-bold max-w-2xl mx-auto leading-relaxed">أنا معاك عشان أسهل عليك كل صعب في المنهج. اسأل في أي مادة، كيمياء، فيزياء، رياضة، هفهمك كأننا بنحكي حكاية!</p>
+                  <div className="flex flex-wrap justify-center gap-4 relative z-10">
+                    <button onClick={()=>setInputValue("اشرح لي الكيمياء العضوية بطريقة سهلة")} className="px-8 py-4 bg-indigo-50 text-indigo-700 rounded-3xl text-sm font-black shadow-sm hover:scale-105 transition-all">العضوية 🧪</button>
+                    <button onClick={()=>setInputValue("حل لي مسألة فيزياء عن قوانين نيوتن")} className="px-8 py-4 bg-amber-50 text-amber-700 rounded-3xl text-sm font-black shadow-sm hover:scale-105 transition-all">فيزياء ⚡</button>
+                    <button onClick={()=>setInputValue("ازاي أذاكر صح في النظام الجديد؟")} className="px-8 py-4 bg-emerald-50 text-emerald-700 rounded-3xl text-sm font-black shadow-sm hover:scale-105 transition-all">نصائح 🎓</button>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                   <div className="glass-platinum p-6 rounded-3xl flex flex-col items-center justify-center gap-2 border border-white/5 shadow-inner">
-                      <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">رصيد النبوغ</label>
-                      <div className="text-4xl font-black text-indigo-400 flex items-center gap-3"><Zap className="text-amber-400" size={24}/>{profile.points}</div>
-                   </div>
-                   <div className="glass-platinum p-6 rounded-3xl space-y-4 border border-white/5">
-                      <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest text-right block">الصف</label>
-                      <select value={editGrade} onChange={e=>setEditGrade(e.target.value as Grade)} className="w-full bg-slate-950 p-3 rounded-xl border border-white/10 font-bold outline-none text-sm cursor-pointer">
-                        <option value="1sec">الأول الثانوي</option><option value="2sec">الثاني الثانوي</option><option value="3sec">الثالث الثانوي</option>
-                      </select>
-                   </div>
-                </div>
-                <div className="glass-platinum p-6 rounded-3xl space-y-4 border border-white/5">
-                    <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest text-right block">الشعبة</label>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      {['science', 'math', 'literary', 'general'].map((b) => (
-                        <button key={b} onClick={() => setEditBranch(b as Branch)} className={`py-3 rounded-xl font-bold border text-xs transition-all ${editBranch === b ? 'bg-indigo-600 border-indigo-400 text-white shadow-md' : 'bg-slate-950 border-white/5 text-slate-500'}`}>
-                          {b === 'science' ? 'علوم' : b === 'math' ? 'رياضة' : b === 'literary' ? 'أدبي' : 'عامة'}
-                        </button>
-                      ))}
-                    </div>
-                </div>
-                <button onClick={handleSaveProfile} disabled={isSavingProfile} className="py-5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-[2rem] font-black text-xl shadow-xl transition-all flex items-center justify-center gap-4 mt-4">
-                  {isSavingProfile ? <Loader2 className="animate-spin" size={24}/> : <><Save size={20}/> حفظ البيانات</>}
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              )}
+              
+              <AnimatePresence mode="popLayout">
+                {currentSession?.messages.map(m => (
+                  <ChatBubble key={m.id} message={m} onDeepExplain={handleDeepExplain} onExportPDF={exportToPDF} />
+                ))}
+              </AnimatePresence>
+              
+              {isGenerating && (
+                <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex gap-5 p-8 bg-white rounded-[3rem] w-fit border-r-8 border-indigo-600 shadow-2xl items-center">
+                  <div className="size-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                  <span className="font-black text-slate-900 text-lg tracking-tight">الدحيح بيجهز لك أقوى ملزمة...</span>
+                </motion.div>
+              )}
+           </div>
+        </div>
+
+        <div className="absolute bottom-0 left-0 w-full p-8 md:p-14 bg-gradient-to-t from-white via-white/95 to-transparent z-10 pointer-events-none">
+          <div className="max-w-5xl mx-auto space-y-8 pointer-events-auto">
+               <div className="flex gap-4">
+                 <button onClick={()=>setUseThinking(!useThinking)} className={`px-8 py-4 rounded-[1.5rem] text-xs font-black border-2 transition-all flex items-center gap-3 shadow-2xl ${useThinking?'bg-indigo-600 text-white border-indigo-400 shadow-indigo-300':'bg-white text-slate-500 border-slate-100'}`}>
+                   <Lightbulb size={24} className={useThinking ? "animate-pulse" : ""} /> {useThinking ? 'تفكير الدحيح العميق نشط' : 'فعل التفكير الفائق'}
+                 </button>
+                 {attachedFile && (
+                   <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="px-6 py-3 bg-emerald-50 text-emerald-800 border-2 border-emerald-100 rounded-2xl text-xs font-black flex items-center gap-3">
+                     <FileText size={20} /> {attachedFile.name.substring(0, 15)}... 
+                     <button onClick={()=>setAttachedFile(null)} className="p-1 hover:bg-emerald-200 rounded-full"><X size={18} /></button>
+                   </motion.div>
+                 )}
+               </div>
+
+               <div className="relative glass-card p-5 md:p-8 rounded-[3.5rem] flex items-end gap-5 border-2 border-slate-100 shadow-[0_30px_70px_rgba(0,0,0,0.06)] focus-within:border-indigo-500 focus-within:shadow-[0_30px_70px_rgba(79,70,229,0.15)] transition-all">
+                  <button onClick={()=>fileInputRef.current?.click()} className="size-16 bg-slate-50 rounded-[1.5rem] text-slate-500 flex items-center justify-center shrink-0 hover:bg-slate-200 transition-colors">
+                    <Paperclip size={28} />
+                  </button>
+                  <input type="file" ref={fileInputRef} onChange={(e)=>{
+                    const f = e.target.files?.[0];
+                    if(f){
+                      const r = new FileReader();
+                      r.onloadend=()=>setAttachedFile({data: r.result as string, name: f.name, type: f.type});
+                      r.readAsDataURL(f);
+                    }
+                  }} className="hidden" />
+
+                  <textarea 
+                    value={inputValue} 
+                    onChange={e=>setInputValue(e.target.value)} 
+                    onKeyDown={e=>e.key==='Enter'&&!e.shiftKey&&(e.preventDefault(), handleSend())}
+                    placeholder="اكتب أي سؤال في المنهج يا دحيح..." 
+                    className="flex-1 bg-transparent border-none focus:ring-0 py-4 text-xl font-black placeholder:text-slate-300 resize-none max-h-56 text-slate-900 text-right leading-relaxed no-scrollbar" 
+                    rows={1} 
+                  />
+
+                  <div className="flex gap-4">
+                    <button className={`size-16 rounded-[1.5rem] flex items-center justify-center transition-all ${isRecording ? 'bg-rose-600 text-white animate-pulse' : 'bg-slate-50 text-slate-400 hover:bg-slate-200'}`}>
+                      <Mic size={28} />
+                    </button>
+                    <button onClick={handleSend} disabled={isGenerating || (!inputValue.trim() && !attachedFile)} className={`size-16 rounded-[1.5rem] text-white shadow-2xl flex items-center justify-center shrink-0 transition-all ${inputValue.trim() || attachedFile ? 'bg-indigo-600 shadow-indigo-300 scale-110 active:scale-95' : 'bg-slate-100 text-slate-300'}`}>
+                      <Send className="rotate-180" size={32} />
+                    </button>
+                  </div>
+               </div>
+          </div>
+        </div>
+      </main>
     </div>
   );
 };

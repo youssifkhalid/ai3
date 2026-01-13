@@ -4,19 +4,34 @@ export interface Message {
   role: 'user' | 'model';
   text: string;
   image?: string;
+  video?: string;
+  timestamp: number;
+  groundingLinks?: Array<{ title: string; uri: string }>;
+  isThinking?: boolean;
+}
+
+export type AcademicYear = '1ث' | '2ث' | '3ث';
+export type Track = 'عام' | 'علمي' | 'أدبي' | 'علمي علوم' | 'علمي رياضة';
+
+// Define SavedLesson to represent lessons stored in the user library
+export interface SavedLesson {
+  id: string;
+  title: string;
+  content: string;
   timestamp: number;
 }
 
-export type Grade = '1sec' | '2sec' | '3sec';
-export type Branch = 'general' | 'science' | 'math' | 'literary';
-export type SchoolType = 'gov' | 'private' | 'inter';
-
 export interface UserProfile {
   uid: string;
-  name: string;
-  email: string;
+  name: string;        
+  nickname: string;    
+  emailOrPhone: string;
+  academicYear: AcademicYear;
+  track: Track;
   points: number;
-  grade?: Grade;
-  branch?: Branch;
-  schoolType?: SchoolType;
+  joinedAt: number;
+  // Add savedLessons to fix App.tsx errors
+  savedLessons?: SavedLesson[];
+  // Add memory to fix firebaseService.ts errors
+  memory?: string;
 }

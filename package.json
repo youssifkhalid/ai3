@@ -1,5 +1,5 @@
 {
-  "name": "dahih-quantum",
+  "name": "copy-of-dahih-quantum-2026",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -12,8 +12,8 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "@google/genai": "^1.35.0",
-    "framer-motion": "^12.25.0",
     "lucide-react": "^0.562.0",
+    "framer-motion": "^12.0.0",
     "firebase": "^12.7.0"
   },
   "devDependencies": {
